@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Canvas Paint & Gestures</title>
+    <title>Canvas Paint, Gestures & Ripples</title>
 
     <script src="jquery-1.9.1.min.js" type="text/javascript"></script>
     <script src="jquery.multitouch.js" type="text/javascript"></script>
@@ -17,7 +17,6 @@
         #canvas {
             width: 100vw; height: 100vh;
             display: block; image-rendering: pixelated;
-            cursor: crosshair;
         }
     </style>
 </head>
@@ -25,11 +24,6 @@
     <canvas id="canvas" width="480" height="854"></canvas>
 
     <script>
-        /**
-         * 1. BROWSER LOCKDOWN
-         * Prevents "Passive Listener" errors and stops the browser 
-         * from hijacking swipes for "Back/Forward" navigation.
-         */
         document.addEventListener('touchstart', e => { e.preventDefault(); }, { passive: false });
         document.addEventListener('touchmove', e => { e.preventDefault(); }, { passive: false });
 
@@ -38,23 +32,19 @@
         const canvas = document.getElementById("canvas");
         const ctx = canvas.getContext("2d");
 
-        // Game Assets
         const bg = new Image(); bg.src = "background.jpg";
         const hero = new Image(); hero.src = "character.png";
 
-        // Game State
+        // --- GAME STATE ---
         let currentMessage = "";
         let messageTimer = 0;
         let touchPath = []; 
+        let ripples = []; // New array to hold active ripple effects
 
-        /**
-         * 2. THE RENDER LOOP
-         * Everything is drawn here 60 times per second.
-         */
         function render() {
             ctx.imageSmoothingEnabled = false;
 
-            // Clear Screen / Draw Background
+            // 1. Draw Background
             if (bg.complete) {
                 ctx.drawImage(bg, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
             } else {
@@ -62,19 +52,35 @@
                 ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
             }
 
-            // Draw Hero
+            // 2. Draw Hero
             if (hero.complete) {
-                ctx.drawImage(hero, 0, 0, 80, 80);
+                ctx.drawImage(hero, 0, 0, 80, 80); 
             }
 
-            // 3. PAINT FINGER MOVEMENT
+            // 3. DRAW RIPPLES (Echoing Circles)
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                let r = ripples[i];
+                r.radius += 4;      // Speed of expansion
+                r.opacity -= 0.02;  // Speed of fade
+
+                if (r.opacity <= 0) {
+                    ripples.splice(i, 1); // Remove dead ripples
+                    continue;
+                }
+
+                ctx.beginPath();
+                ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${r.opacity})`; // White fading circle
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            // 4. PAINT FINGER MOVEMENT
             if (touchPath.length > 1) {
                 ctx.beginPath();
-                ctx.strokeStyle = "#00ffff"; // Cyan path
+                ctx.strokeStyle = "#00ffff";
                 ctx.lineWidth = 10;
                 ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-                
                 ctx.moveTo(touchPath[0].x, touchPath[0].y);
                 for (let i = 1; i < touchPath.length; i++) {
                     ctx.lineTo(touchPath[i].x, touchPath[i].y);
@@ -82,32 +88,40 @@
                 ctx.stroke();
             }
 
-            // 4. DRAW GESTURE TEXT
+            // 5. DRAW GESTURE TEXT
             if (messageTimer > 0) {
                 ctx.font = "bold 60px Arial";
                 ctx.textAlign = "center";
-                // Black outline
                 ctx.strokeStyle = "black";
                 ctx.lineWidth = 8;
                 ctx.strokeText(currentMessage, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-                // Yellow fill
                 ctx.fillStyle = "yellow";
                 ctx.fillText(currentMessage, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-                
                 messageTimer--;
             }
 
             requestAnimationFrame(render);
         }
 
-        /**
-         * 3. JQMULTITOUCH ENGINE
-         */
         $.touch.ready(function () {
             $('#canvas').touchable({
-                touchMove: function (e, touchHistory) {
+                // Triggers exactly when the finger hits the glass
+                touchDown: function(e) {
                     const rect = canvas.getBoundingClientRect();
-                    // Maps actual screen touch to the 480x854 world
+                    const scaleX = WORLD_WIDTH / rect.width;
+                    const scaleY = WORLD_HEIGHT / rect.height;
+
+                    // Add a new ripple at the touch point
+                    ripples.push({
+                        x: (e.clientX - rect.left) * scaleX,
+                        y: (e.clientY - rect.top) * scaleY,
+                        radius: 5,
+                        opacity: 1.0
+                    });
+                },
+
+                touchMove: function (e) {
+                    const rect = canvas.getBoundingClientRect();
                     const scaleX = WORLD_WIDTH / rect.width;
                     const scaleY = WORLD_HEIGHT / rect.height;
 
@@ -118,14 +132,14 @@
                 },
 
                 touchUp: function () {
-                    touchPath = []; // Clear drawing when finger lifts
+                    touchPath = [];
                 },
 
                 gesture: function (e, touchHistory) {
                     var th = touchHistory.stop({type: ['touchdown', 'touchup']})
                                          .filter({type: 'touchmove', time: '1..200'});
 
-                    const sens = 50; // Swipe sensitivity
+                    const sens = 50;
                     if (th.match({ deltaX: '<-' + sens })) showCanvasMessage('LEFT');
                     else if (th.match({ deltaX: '>' + sens }))  showCanvasMessage('RIGHT');
                     else if (th.match({ deltaY: '>' + sens }))  showCanvasMessage('DOWN');
@@ -135,10 +149,10 @@
 
             function showCanvasMessage(s) {
                 currentMessage = s;
-                messageTimer = 45; // Stay on screen for ~0.75 seconds
+                messageTimer = 45; 
             }
 
-            render(); // Start loop
+            render();
         });
     </script>
 </body>

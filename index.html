@@ -224,8 +224,11 @@
             messageTimer = 45; 
         }
 
-        render();
-    });
+        // Wait for everything (images and scripts) to fully load before starting
+$(window).on('load', function() {
+    render();
+}); 
+    }); 
 </script> // great!!!!  
 </body>
 </html> 

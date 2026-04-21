@@ -34,12 +34,32 @@
     const ctx = canvas.getContext("2d");
 
     const bg = new Image(); bg.src = "background.jpg";
-    const HERO_LAYERS = ["leg_right", "leg_left", "body", "arm_left", "arm_right", "face", "mouth_shut", "mouth_open", "eyes_open", "eyelids", "eyebrows"];
-    const heroImages = {};
+    // --- ASSET LOADING WITH TRACKER ---
+const HERO_LAYERS = ["leg_right", "leg_left", "body", "arm_left", "arm_right", "face", "mouth_shut", "mouth_open", "eyes_open", "eyelids", "eyebrows"];
+const heroImages = {};
+let imagesLoaded = 0;
+const totalImages = HERO_LAYERS.length;
+
+function loadAssets(callback) {
     HERO_LAYERS.forEach(layer => {
-        heroImages[layer] = new Image();
-        heroImages[layer].src = `eren/${layer}.png`;
+        const img = new Image();
+        img.onload = () => {
+            imagesLoaded++;
+            if (imagesLoaded === totalImages) {
+                callback(); // Start the game only when ALL are ready
+            }
+        };
+        img.onerror = () => {
+            console.error("Failed to load: " + layer);
+            // Even if one fails, we count it so the game can at least try to start
+            imagesLoaded++; 
+            if (imagesLoaded === totalImages) callback();
+        };
+        // Adding a timestamp ?t= is a "super cache buster" for iPhone
+        img.src = `eren/${layer}.png?t=${Date.now()}`;
+        heroImages[layer] = img;
     });
+}
 
     // --- PHYSICS & STATE ---
     const hero = {
@@ -135,6 +155,10 @@
     }
 
     $.touch.ready(function () {
+        loadAssets(() => {
+            console.log("All assets loaded. Starting engine...");
+            render(); // Now render only starts after images are in memory
+        });
         $('#canvas').touchable({
             touchDown: function(e) {
                 const rect = canvas.getBoundingClientRect();

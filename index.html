@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Canvas Paint, Gestures & Ripples</title>
+    <title>Canvas Hero - Final Physics</title>
 
     <script src="jquery-1.9.1.min.js" type="text/javascript"></script>
     <script src="jquery.multitouch.js" type="text/javascript"></script>
@@ -24,136 +24,208 @@
     <canvas id="canvas" width="480" height="854"></canvas>
 
     <script>
-        document.addEventListener('touchstart', e => { e.preventDefault(); }, { passive: false });
-        document.addEventListener('touchmove', e => { e.preventDefault(); }, { passive: false });
+    // --- SETUP ---
+    document.addEventListener('touchstart', e => { e.preventDefault(); }, { passive: false });
+    document.addEventListener('touchmove', e => { e.preventDefault(); }, { passive: false });
 
-        const WORLD_WIDTH = 480;
-        const WORLD_HEIGHT = 854;
-        const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d");
+    const WORLD_WIDTH = 480;
+    const WORLD_HEIGHT = 854;
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
 
-        const bg = new Image(); bg.src = "background.jpg";
-        const hero = new Image(); hero.src = "character.png";
+    const bg = new Image(); bg.src = "background.jpg";
+    const HERO_LAYERS = ["leg_right", "leg_left", "body", "arm_left", "arm_right", "face", "mouth_shut", "mouth_open", "eyes_open", "eyelids", "eyebrows"];
+    const heroImages = {};
+    HERO_LAYERS.forEach(layer => {
+        heroImages[layer] = new Image();
+        heroImages[layer].src = `eren/${layer}.png`;
+    });
 
-        // --- GAME STATE ---
-        let currentMessage = "";
-        let messageTimer = 0;
-        let touchPath = []; 
-        let ripples = []; // New array to hold active ripple effects
+    // --- PHYSICS & STATE ---
+    const hero = {
+        x: (WORLD_WIDTH / 2) - 40,
+        y: 700,
+        w: 80, h: 100,
+        vx: 0, // Horizontal velocity
+        vy: 0, // Vertical velocity
+        gravity: 0.8,
+        friction: 0.95, // Slows down horizontal movement over time
+        minJump: -12,
+        groundY: 700, 
+        isGrounded: true,
+        isBeingDragged: false
+    };
 
-        function render() {
-            ctx.imageSmoothingEnabled = false;
+    let currentMessage = "";
+    let messageTimer = 0;
+    let ripples = [];
+    
+    // Gesture Tracking
+    let startX = 0; // Track start X for tossing
+    let startY = 0;
+    let startTime = 0; 
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let startedOnGround = false;
 
-            // 1. Draw Background
-            if (bg.complete) {
-                ctx.drawImage(bg, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    function updatePhysics() {
+        if (!hero.isBeingDragged) {
+            // Apply Gravity
+            hero.vy += hero.gravity;
+            hero.y += hero.vy;
+
+            // Apply Horizontal Velocity & Friction
+            hero.x += hero.vx;
+            hero.vx *= hero.friction;
+
+            // Ground Collision
+            if (hero.y >= hero.groundY) {
+                hero.y = hero.groundY;
+                hero.vy = 0;
+                hero.isGrounded = true;
+                // Stop horizontal sliding when on ground
+                if (Math.abs(hero.vx) < 0.1) hero.vx = 0;
             } else {
-                ctx.fillStyle = "#1a1a1a";
-                ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+                hero.isGrounded = false;
             }
 
-            // 2. Draw Hero
-            if (hero.complete) {
-                ctx.drawImage(hero, 0, 0, 80, 80); 
-            }
+            // Screen Wall Bouncing
+            if (hero.x < 0) { hero.x = 0; hero.vx *= -0.5; } // Bounce off left
+            if (hero.x > WORLD_WIDTH - hero.w) { hero.x = WORLD_WIDTH - hero.w; hero.vx *= -0.5; } // Bounce off right
+        } else {
+            hero.vy = 0;
+            hero.vx = 0;
+            hero.isGrounded = (hero.y >= hero.groundY - 5);
+        }
+    }
 
-            // 3. DRAW RIPPLES (Echoing Circles)
-            for (let i = ripples.length - 1; i >= 0; i--) {
-                let r = ripples[i];
-                r.radius += 4;      // Speed of expansion
-                r.opacity -= 0.02;  // Speed of fade
+    function render() {
+        updatePhysics();
+        ctx.imageSmoothingEnabled = false;
 
-                if (r.opacity <= 0) {
-                    ripples.splice(i, 1); // Remove dead ripples
-                    continue;
-                }
+        if (bg.complete) ctx.drawImage(bg, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        else { ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT); }
 
-                ctx.beginPath();
-                ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(255, 255, 255, ${r.opacity})`; // White fading circle
-                ctx.lineWidth = 3;
-                ctx.stroke();
-            }
+        HERO_LAYERS.forEach(layer => {
+            const img = heroImages[layer];
+            if (!img.complete) return;
+            const isYelling = (hero.vy < 0 || hero.isBeingDragged);
+            if (layer === "mouth_shut" && isYelling) return; 
+            if (layer === "mouth_open" && !isYelling) return;
+            ctx.drawImage(img, hero.x, hero.y, hero.w, hero.h); 
+        });
 
-            // 4. PAINT FINGER MOVEMENT
-            if (touchPath.length > 1) {
-                ctx.beginPath();
-                ctx.strokeStyle = "#00ffff";
-                ctx.lineWidth = 10;
-                ctx.lineCap = "round";
-                ctx.moveTo(touchPath[0].x, touchPath[0].y);
-                for (let i = 1; i < touchPath.length; i++) {
-                    ctx.lineTo(touchPath[i].x, touchPath[i].y);
-                }
-                ctx.stroke();
-            }
-
-            // 5. DRAW GESTURE TEXT
-            if (messageTimer > 0) {
-                ctx.font = "bold 60px Arial";
-                ctx.textAlign = "center";
-                ctx.strokeStyle = "black";
-                ctx.lineWidth = 8;
-                ctx.strokeText(currentMessage, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-                ctx.fillStyle = "yellow";
-                ctx.fillText(currentMessage, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-                messageTimer--;
-            }
-
-            requestAnimationFrame(render);
+        for (let i = ripples.length - 1; i >= 0; i--) {
+            let r = ripples[i];
+            r.radius += 4; r.opacity -= 0.02;
+            if (r.opacity <= 0) { ripples.splice(i, 1); continue; }
+            ctx.beginPath(); ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255, 255, 255, ${r.opacity})`;
+            ctx.lineWidth = 3; ctx.stroke();
         }
 
-        $.touch.ready(function () {
-            $('#canvas').touchable({
-                // Triggers exactly when the finger hits the glass
-                touchDown: function(e) {
-                    const rect = canvas.getBoundingClientRect();
-                    const scaleX = WORLD_WIDTH / rect.width;
-                    const scaleY = WORLD_HEIGHT / rect.height;
+        if (messageTimer > 0) {
+            ctx.font = "bold 60px Arial"; ctx.textAlign = "center";
+            ctx.strokeStyle = "black"; ctx.lineWidth = 8;
+            ctx.strokeText(currentMessage, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+            ctx.fillStyle = "yellow"; ctx.fillText(currentMessage, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+            messageTimer--;
+        }
+        requestAnimationFrame(render);
+    }
 
-                    // Add a new ripple at the touch point
-                    ripples.push({
-                        x: (e.clientX - rect.left) * scaleX,
-                        y: (e.clientY - rect.top) * scaleY,
-                        radius: 5,
-                        opacity: 1.0
-                    });
-                },
+    $.touch.ready(function () {
+        $('#canvas').touchable({
+            touchDown: function(e) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = WORLD_WIDTH / rect.width;
+                const scaleY = WORLD_HEIGHT / rect.height;
+                const tx = (e.clientX - rect.left) * scaleX;
+                const ty = (e.clientY - rect.top) * scaleY;
 
-                touchMove: function (e) {
-                    const rect = canvas.getBoundingClientRect();
-                    const scaleX = WORLD_WIDTH / rect.width;
-                    const scaleY = WORLD_HEIGHT / rect.height;
+                ripples.push({ x: tx, y: ty, radius: 5, opacity: 1.0 });
+                
+                startX = tx; // Save start X
+                startY = ty; 
+                startTime = Date.now();
 
-                    touchPath.push({
-                        x: (e.clientX - rect.left) * scaleX,
-                        y: (e.clientY - rect.top) * scaleY
-                    });
-                },
-
-                touchUp: function () {
-                    touchPath = [];
-                },
-
-                gesture: function (e, touchHistory) {
-                    var th = touchHistory.stop({type: ['touchdown', 'touchup']})
-                                         .filter({type: 'touchmove', time: '1..200'});
-
-                    const sens = 50;
-                    if (th.match({ deltaX: '<-' + sens })) showCanvasMessage('LEFT');
-                    else if (th.match({ deltaX: '>' + sens }))  showCanvasMessage('RIGHT');
-                    else if (th.match({ deltaY: '>' + sens }))  showCanvasMessage('DOWN');
-                    else if (th.match({ deltaY: '<-' + sens })) showCanvasMessage('UP');
+                if (tx >= hero.x - 40 && tx <= hero.x + hero.w + 40 && 
+                    ty >= hero.y - 40 && ty <= hero.y + hero.h + 40) {
+                    
+                    hero.isBeingDragged = true;
+                    dragOffsetX = tx - hero.x;
+                    dragOffsetY = ty - hero.y;
+                    startedOnGround = hero.isGrounded; 
                 }
-            });
+            },
 
-            function showCanvasMessage(s) {
-                currentMessage = s;
-                messageTimer = 45; 
+            touchMove: function(e) {
+                if (hero.isBeingDragged) {
+                    const rect = canvas.getBoundingClientRect();
+                    const scaleX = WORLD_WIDTH / rect.width;
+                    const scaleY = WORLD_HEIGHT / rect.height;
+                    const tx = (e.clientX - rect.left) * scaleX;
+                    const ty = (e.clientY - rect.top) * scaleY;
+
+                    hero.x = tx - dragOffsetX;
+                    hero.y = ty - dragOffsetY;
+
+                    if (hero.x < 0) hero.x = 0;
+                    if (hero.x > WORLD_WIDTH - hero.w) hero.x = WORLD_WIDTH - hero.w;
+                    if (hero.y > WORLD_HEIGHT - hero.h) hero.y = WORLD_HEIGHT - hero.h;
+                }
+            },
+
+            touchUp: function(e) {
+                if (!hero.isBeingDragged) return;
+
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = WORLD_WIDTH / rect.width;
+                const scaleY = WORLD_HEIGHT / rect.height;
+                const clientX = e.clientX || (e.changedTouches && e.changedTouches[0].clientX);
+                const clientY = e.clientY || (e.changedTouches && e.changedTouches[0].clientY);
+                
+                const endX = (clientX - rect.left) * scaleX;
+                const endY = (clientY - rect.top) * scaleY;
+
+                const diffX = endX - startX; // Positive = Right, Negative = Left
+                const diffY = startY - endY; 
+                const duration = Date.now() - startTime;
+
+                if (startedOnGround && diffY > 70 && duration < 300) {
+                    // Upward Boost
+                    let boostY = Math.min(diffY / 5, 30);
+                    hero.vy = hero.minJump - boostY;
+
+                    // Horizontal Toss Boost (The new part!)
+                    // Dividing by 10 makes the toss feel natural
+                    hero.vx = diffX / 10; 
+
+                    showCanvasMessage("TOSS!"); 
+                } 
+
+                hero.isBeingDragged = false;
+                startedOnGround = false;
+            },
+
+            gesture: function (e, touchHistory) {
+                if (hero.isBeingDragged) return;
+                var th = touchHistory.filter({type: 'touchmove', time: '1..300'});
+                if (th.length === 0) return; 
+
+                if (th.match({ deltaX: '<-' + 40 })) showCanvasMessage('LEFT');
+                else if (th.match({ deltaX: '>' + 40 })) showCanvasMessage('RIGHT');
+                else if (th.match({ deltaY: '>' + 40 })) showCanvasMessage('DOWN');
             }
-
-            render();
         });
-    </script>
+
+        function showCanvasMessage(s) {
+            currentMessage = s;
+            messageTimer = 45; 
+        }
+
+        render();
+    });
+</script> // great!!!!  
 </body>
 </html> 
